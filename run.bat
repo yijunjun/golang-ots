@@ -1,0 +1,1 @@
+golang-ots.exe -insert=true -num=10 -cols=30
