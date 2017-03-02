@@ -84,8 +84,6 @@ func do_insert(ots *ots2.OTSClient, table string, num, cols int) (*TResult, erro
 
 	var ti TResult
 
-	var attr OTSAttribute
-
 	errList := make([]error, num)
 
 	// insert a row
@@ -94,39 +92,75 @@ func do_insert(ots *ots2.OTSClient, table string, num, cols int) (*TResult, erro
 		if isSingle {
 			abs := make([]string, cols)
 			for i := 0; i < cols; i++ {
-				// 满足列名条件,不能以纯数字开头
-				abs[i] = fmt.Sprintf("%_20d", ID_LIMIT+i)
+				abs[i] = fmt.Sprintf("%019d", ID_LIMIT+i)
 			}
-			attr = OTSAttribute{
+			attr := OTSAttribute{
 				"attr": strings.Join(abs, ","),
 			}
-		} else {
-			abs := make(map[string]interface{}, cols)
-			for i := 0; i < cols; i++ {
-				// 满足列名条件,不能以纯数字开头
-				abs[fmt.Sprintf("%_20d", ID_LIMIT+i)] = true
+			mid := time.Now()
+			res, ots_err := ots.PutRow(
+				table,
+				OTSCondition_EXPECT_NOT_EXIST,
+				&OTSPrimaryKey{
+					// 满足列名条件,不能以纯数字开头
+					"id": fmt.Sprintf("_%019d", ID_LIMIT+j),
+				},
+				&attr,
+			)
+
+			if ots_err != nil {
+				errList[ti.Fail] = ots_err
+				ti.Fail += 1
+			} else {
+				ti.Ok += 1
+				ti.CostAll += res.GetWriteConsumed()
+				now := time.Now()
+				ti.TimeAll += now.Sub(begin).Seconds()
+				ti.ReqTimeAll += now.Sub(mid).Seconds()
 			}
-			attr = OTSAttribute(abs)
-		}
-		mid := time.Now()
-		res, ots_err := ots.PutRow(
-			table,
-			OTSCondition_EXPECT_NOT_EXIST,
-			&OTSPrimaryKey{
-				// 满足列名条件,不能以纯数字开头
-				"id": fmt.Sprintf("%_20d", ID_LIMIT+j),
-			},
-			&attr,
-		)
-		if ots_err != nil {
-			errList[ti.Fail] = ots_err
-			ti.Fail += 1
 		} else {
-			ti.Ok += 1
-			ti.CostAll += res.GetWriteConsumed()
-			now := time.Now()
-			ti.TimeAll += now.Sub(begin).Seconds()
-			ti.ReqTimeAll += now.Sub(mid).Seconds()
+			mid := time.Now()
+			wc := int32(0)
+			has_err := false
+			// 分段写,一次不能写太多
+			for k := 0; k < cols; k += 1000 {
+				end := k + 1000
+				if end > cols {
+					end = cols
+				}
+				colList := make(map[string]interface{}, end-k)
+				for i := k; i < end; i++ {
+					// 满足列名条件,不能以纯数字开头
+					colList[fmt.Sprintf("_%019d", ID_LIMIT+i)] = true
+				}
+				attr := OTSUpdateOfAttribute{
+					OTSOperationType_PUT: OTSColumnsToPut(colList),
+				}
+				res, ots_err := ots.UpdateRow(
+					table,
+					OTSCondition_IGNORE,
+					&OTSPrimaryKey{
+						// 满足列名条件,不能以纯数字开头
+						"id": fmt.Sprintf("_%019d", ID_LIMIT+j),
+					},
+					&attr,
+				)
+				if ots_err != nil {
+					errList[ti.Fail] = ots_err
+					ti.Fail += 1
+					has_err = true
+					break
+				} else {
+					wc += res.GetWriteConsumed()
+				}
+			}
+			if !has_err {
+				ti.Ok += 1
+				ti.CostAll += wc
+				now := time.Now()
+				ti.TimeAll += now.Sub(begin).Seconds()
+				ti.ReqTimeAll += now.Sub(mid).Seconds()
+			}
 		}
 	}
 
@@ -148,7 +182,7 @@ func do_insert(ots *ots2.OTSClient, table string, num, cols int) (*TResult, erro
 
 func Insert(num, cols int) {
 	tf := &TFile{
-		Name:       "inesrt.xlsx",
+		Name:       "insert.xlsx",
 		Sheets:     []string{fmt.Sprintf("%v列-%v次", cols, num)},
 		RowHeaders: []string{"节点表", "成功次数", "失败次数", "成功比例", "总成本", "平均成本", "总时间", "平均时间", "总请求时间", "平均请求时间"},
 		Rows:       make([][]string, len(configs)),
@@ -229,7 +263,7 @@ func do_get(ots *ots2.OTSClient, table string, num, cols int) (*TResult, error) 
 			} else {
 				abs := make([]string, cols)
 				for i := 0; i < cols; i++ {
-					abs[i] = fmt.Sprintf("%_20d", ID_LIMIT+i)
+					abs[i] = fmt.Sprintf("_%019d", ID_LIMIT+i)
 				}
 				tmp := OTSColumnsToGet(abs)
 				attr = &tmp
@@ -239,7 +273,7 @@ func do_get(ots *ots2.OTSClient, table string, num, cols int) (*TResult, error) 
 		res, ots_err := ots.GetRow(
 			table,
 			&OTSPrimaryKey{
-				"id": fmt.Sprintf("%_20d", ID_LIMIT+j),
+				"id": fmt.Sprintf("_%019d", ID_LIMIT+j),
 			},
 			attr,
 		)
