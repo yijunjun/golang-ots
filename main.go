@@ -14,8 +14,8 @@ import (
 
 // modify it to yours
 var (
-	ACCESSID  = "LTAIqjq4OplpzZRS"
-	ACCESSKEY = "GbtpMcQHxTBElHLVwC4UDl1lSsmFK4"
+	ACCESSID  = "yourID"
+	ACCESSKEY = "yourKEY"
 )
 
 type TFile struct {
